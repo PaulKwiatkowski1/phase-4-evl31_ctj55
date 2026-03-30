@@ -1,0 +1,9 @@
+error: line 15: Too few arguments provided in function call.
+error: line 16: Too many arguments provided in function call.
+error: line 17: Argument type mismatch in function call.
+error: line 18: Too many arguments provided in function call.
+error: line 19: Argument type mismatch in function call.
+error: line 20: Argument type mismatch in function call.
+error: line 21: Argument type mismatch in function call.
+Compilation finished.
+

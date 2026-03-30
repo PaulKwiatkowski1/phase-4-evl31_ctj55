@@ -1,0 +1,7 @@
+error: line 3: Array variable declared with size of zero.
+error: line 7: Non-array identifier used as an array.
+error: line 8: Array indexed using non-integer expression.
+error: line 9: Array indexed using non-integer expression.
+error: line 10: Statically sized array indexed with constant, out-of-bounds expression.
+Compilation finished.
+
