@@ -21,10 +21,13 @@ struct treenode {
       int nodeKind;
       int numChildren;
       int val;
-  char *strval;
+      char *strval;
+      int type;
       struct treenode *parent;
       struct treenode *children[MAXCHILDREN];
 };
+typedef struct treenode tree;
+extern tree *ast;
 
 /* builds sub tree with zeor children  */
 struct treenode *maketree(int kind);

@@ -11,36 +11,14 @@ extern int yylex(void);
 int yywarning(char *msg);
 int yyerror(char *msg);
 
-
+int pcount = 0;
+int argCount = 0;
 typedef struct treenode tree;
 extern tree *ast;
 
-/* nodeTypes refer to different types of internal and external nodes
-  that can be part of the abstract syntax tree.
-  */
-
-/* NOTE: mC has two kinds of scopes for variables : local and global.
-  Variables declared outside any function are considered globals,
-    whereas variables (and parameters) declared inside a function foo
-    are local to foo.
-  You should update the scope variable whenever you are inside a production
-    that matches function definition (funDecl production).
-  The rationale is that you are entering that function, so all variables,
-    arrays, and other functions should be within this scope.
-  You should pass this variable whenever you are
-    calling the ST_insert or ST_lookup functions.
-  This variable should be updated to scope = ""
-    to indicate global scope whenever funDecl finishes.
-  Treat these hints as helpful directions only.
-  You may implement all of the functions as you like
-    and not adhere to my instructions.
-  As long as the directory structure is correct and the file names are correct,
-    we are okay with it.
-  */
 char* scope = "";
 %}
 
-/* the union describes the fields available in the yylval variable */
 %union
 {
     int value;
@@ -48,29 +26,15 @@ char* scope = "";
     char *strval;
 }
 
-/*Add token declarations below.
-  The type <value> indicates that the associated token will be
-    of a value type such as integer, float etc.,
-    and <strval> indicates that the associated token will be of string type.
-  */
-/* Tokens with values (passed via yylval) */
 %token <strval> ID STRCONST
 %token <value> INTCONST CHARCONST
-/* Keywords */
-%token KWD_IF KWD_ELSE KWD_WHILE KWD_INT KWD_STRING KWD_CHAR KWD_RETURN KWD_VOID
 
-/* Operators */
+%token KWD_IF KWD_ELSE KWD_WHILE KWD_INT KWD_STRING KWD_CHAR KWD_RETURN KWD_VOID
 %token OPER_INC OPER_DEC OPER_ADD OPER_SUB OPER_MUL OPER_DIV OPER_MOD
 %token OPER_LTE OPER_GTE OPER_EQ OPER_NEQ OPER_LT OPER_GT OPER_ASGN
 %token OPER_AND OPER_OR OPER_NOT OPER_AT
-
-/* Punctuation and Brackets */
 %token LSQ_BRKT RSQ_BRKT LCRLY_BRKT RCRLY_BRKT LPAREN RPAREN COMMA SEMICLN
-
-/* Error handling */
 %token ERROR
-
-
 
 %type <node> program declList decl varDecl typeSpecifier funDecl
 %type <node> formalDeclList formalDecl funBody localDeclList
@@ -78,16 +42,16 @@ char* scope = "";
 %type <node> condStmt loopStmt returnStmt expression relop
 %type <node> addExpr addop term mulop factor funCallExpr argList var
 
-
-
 %start program
 
 %%
 
-
-
-program         : declList 
-                { $$ = maketree(PROGRAM); addChild($$, $1); ast = $$; }
+program         : { new_scope("global"); } declList 
+                { 
+                    $$ = maketree(PROGRAM); 
+                    addChild($$, $2); // Use $2 because the action is now $1
+                    ast = $$; 
+                }
                 ;
 
 declList        : decl 
@@ -106,54 +70,76 @@ varDecl         : typeSpecifier ID LSQ_BRKT INTCONST RSQ_BRKT SEMICLN
                 { 
                     $$ = maketree(VARDECL); 
                     addChild($$, $1); 
-                    int idx = ST_insert($2, scope, $1->val, ARRAY); 
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx));
+                    
+                    if (ST_insert($2, $1->val, ARRAY, current_scope->scope_name) == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
+                    
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0));
                     addChild($$, maketreeWithVal(INTEGER, $4));
                 }
                 | typeSpecifier ID SEMICLN 
                 { 
                     $$ = maketree(VARDECL); 
                     addChild($$, $1);
-                    int idx = ST_insert($2, scope, $1->val, SCALAR); 
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx));
+                    
+                    if (ST_insert($2, $1->val, SCALAR, current_scope->scope_name) == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
+                    
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0));
                 }
                 ;
 
 typeSpecifier   : KWD_INT  { $$ = maketree(TYPESPEC); $$->val = INT_TYPE; }
                 | KWD_CHAR { $$ = maketree(TYPESPEC); $$->val = CHAR_TYPE; }
                 | KWD_VOID { $$ = maketree(TYPESPEC); $$->val = VOID_TYPE; }
-                | KWD_STRING { $$ = maketree(TYPESPEC); $$->val = STRING_TYPE; }
+                | KWD_STRING { $$ = maketree(TYPESPEC); $$->val = STRING_TYPE; } /* Optional if part of your mC version */
                 ;
 
 funDecl         : typeSpecifier ID LPAREN 
                 { 
-                    ST_insert($2, "", $1->val, FUNCTION); 
+                    if (ST_insert($2, $1->val, FUNCTION, "global") == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
                     scope = $2; 
+                    new_scope(scope);
+                    pcount = 0; 
                 }
                 formalDeclList RPAREN funBody 
                 { 
-          tree *funcTypeName = maketree(FUNCTYPENAME);
+                    tree *funcTypeName = maketree(FUNCTYPENAME);
                     $$ = maketree(FUNDECL); 
-          addChild(funcTypeName, $1);
-          addChild(funcTypeName, maketreeWithVal(IDENTIFIER, ST_lookup($2, "")));
-          addChild($$, funcTypeName);
-                    addChild($$, $5); /* formalDeclList is now at $5 */
-                    addChild($$, $7); /* funBody is now at $7 */
+                    addChild(funcTypeName, $1);
+                    addChild(funcTypeName, maketreeWithVal(IDENTIFIER, 0));
+                    addChild($$, funcTypeName);
+                    addChild($$, $5); 
+                    addChild($$, $7); 
+                    
+                    connect_params($2, pcount); 
+                    up_scope(); 
                     scope = ""; 
                 }
                 | typeSpecifier ID LPAREN 
                 { 
-                    ST_insert($2, "", $1->val, FUNCTION); 
+                    if (ST_insert($2, $1->val, FUNCTION, "global") == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
                     scope = $2; 
+                    new_scope(scope);
+                    pcount = 0;
                 }
                 RPAREN funBody 
                 { 
                   tree *funcTypeName = maketree(FUNCTYPENAME);
                     $$ = maketree(FUNDECL); 
                   addChild(funcTypeName, $1);
-                  addChild(funcTypeName, maketreeWithVal(IDENTIFIER, ST_lookup($2, "")));
+                  addChild(funcTypeName, maketreeWithVal(IDENTIFIER, 0));
                   addChild($$, funcTypeName);
-                    addChild($$, $6); /* funBody is now at $6 */
+                    addChild($$, $6); 
+                    
+                    connect_params($2, pcount);
+                    up_scope(); 
                     scope = ""; 
                 }
                 ;
@@ -168,16 +154,26 @@ formalDecl      : typeSpecifier ID
                 { 
                     $$ = maketree(FORMALDECL); 
                     addChild($$, $1); 
-                    int idx = ST_insert($2, scope, $1->val, SCALAR);
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx)); 
+                    
+                    if (ST_insert($2, $1->val, SCALAR, current_scope->scope_name) == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
+                    add_param($1->val, SCALAR);
+                    pcount++;
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
                 }
                 | typeSpecifier ID LSQ_BRKT RSQ_BRKT 
                 { 
                     $$ = maketree(FORMALDECL); 
                     addChild($$, $1); 
-                    int idx = ST_insert($2, scope, $1->val, ARRAY);
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx)); 
-                  addChild($$, maketree(ARRAYDECL));
+                    
+                    if (ST_insert($2, $1->val, ARRAY, current_scope->scope_name) == 0) {
+                        yyerror("Multiply declared identifier");
+                    }
+                    pcount++;
+                    add_param($1->val, ARRAY);
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
+                    addChild($$, maketree(ARRAYDECL));
                 }
                 ;
 
@@ -209,9 +205,20 @@ compoundStmt    : LCRLY_BRKT statementList RCRLY_BRKT
                 ;
 
 assignStmt      : var OPER_ASGN expression SEMICLN 
-                { $$ = maketree(ASSIGNSTMT); addChild($$, $1); addChild($$, $3); }
+                { 
+                    $$ = maketree(ASSIGNSTMT); 
+                    addChild($$, $1); 
+                    addChild($$, $3); 
+
+                    if ($1->type != $3->type) {
+                        yyerror("Type mismatch in assignment");
+                    }
+                }
                 | expression SEMICLN 
-                { $$ = maketree(ASSIGNSTMT); addChild($$, $1); }
+                { 
+                    $$ = maketree(ASSIGNSTMT); 
+                    addChild($$, $1); 
+                }
                 ;
 
 condStmt        : KWD_IF LPAREN expression RPAREN statement 
@@ -233,26 +240,25 @@ returnStmt      : KWD_RETURN SEMICLN
 var             : ID 
                 { 
                     $$ = maketree(VAR); 
-                    int idx = ST_lookup($1, scope);
-                    if (idx == -1) {
-                        idx = ST_lookup($1, "");
+                    symEntry* entry = ST_lookup($1);
+                    if (entry != NULL) {
+                        $$->type = entry->data_type;
                     }
-                    
-                    if (idx == -1) {
-                        yywarning("undeclared variable"); 
-                    }
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx)); 
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
                 }
                 | ID LSQ_BRKT addExpr RSQ_BRKT 
                 { 
                     $$ = maketree(VAR); 
-                    int idx = ST_lookup($1, scope);
-                    if (idx == -1) idx = ST_lookup($1, "");
-                    
-                    if (idx == -1) {
-                        yywarning("undeclared variable");
+                    symEntry* entry = ST_lookup($1);
+                    if (entry != NULL) {
+                        $$->type = entry->data_type;
                     }
-                    addChild($$, maketreeWithVal(IDENTIFIER, idx)); 
+                    
+                    if ($3->type != INT_TYPE) {
+                        yyerror("Array index must be an integer");
+                    }
+                    
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
                     addChild($$, $3); 
                 }
                 ;
@@ -291,45 +297,88 @@ mulop           : OPER_MUL { $$ = maketree(MULOP); $$->val = MUL; }
                 | OPER_DIV { $$ = maketree(MULOP); $$->val = DIV; }
                 ;
 
-factor          : LPAREN expression RPAREN { $$ = maketree(FACTOR); addChild($$, $2); }
-                | var           { $$ = maketree(FACTOR); addChild($$, $1); }
-                | funCallExpr   { $$ = maketree(FACTOR); addChild($$, $1); }
-                | INTCONST      { $$ = maketree(FACTOR); addChild($$, maketreeWithVal(INTEGER, $1)); }
-                | CHARCONST     { $$ = maketree(FACTOR); addChild($$, maketreeWithVal(CHAR, $1)); }
-                | STRCONST      { $$ = maketree(FACTOR); addChild($$, maketreeWithStrVal(STRING, $1)); }
+factor          : INTCONST      
+                { 
+                    $$ = maketreeWithVal(INTEGER, $1); 
+                    $$->type = INT_TYPE; 
+                }
+                | CHARCONST     
+                { 
+                    $$ = maketreeWithVal(CHAR, $1); 
+                    $$->type = CHAR_TYPE; 
+                }
+                | STRCONST      
+                { 
+                    $$ = maketreeWithStrVal(STRING, $1); 
+                    $$->type = STRING_TYPE; 
+                }
+                | var { $$ = $1; } 
+                | funCallExpr   
+                { 
+                    $$ = maketree(FACTOR); 
+                    addChild($$, $1); 
+                    $$->type = $1->type;
+                }
+                | LPAREN expression RPAREN 
+                { 
+                    $$ = maketree(FACTOR); 
+                    addChild($$, $2); 
+                    $$->type = $2->type;
+                }
                 ;
 
 funCallExpr     : ID LPAREN argList RPAREN 
-        {
-          int idx = ST_lookup($1, scope);
-          if (idx == -1) {
-            idx = ST_lookup($1, "");
-          }
-          if (idx == -1) {
-            yywarning("undeclared variable");
-          }
-          $$ = maketree(FUNCCALLEXPR);
-          addChild($$, maketreeWithVal(IDENTIFIER, idx));
-          addChild($$, $3);
-        }
+                {
+                    symEntry* entry = ST_lookup($1);
+                    if (entry == NULL) {
+                        yyerror("Undeclared function");
+                    } else if (entry->symbol_type != FUNCTION) {
+                        yyerror("Called identifier is not a function");
+                    } else if (entry->size != argCount) {
+                        // THIS IS THE NEW CHECK
+                        yyerror("Number of arguments does not match function definition");
+                    }
+                    
+                    $$ = maketree(FUNCCALLEXPR);
+                    if (entry != NULL) {
+                      $$->type = entry->data_type;
+                    }
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0));
+                    addChild($$, $3);
+                }
                 | ID LPAREN RPAREN 
-        {
-          int idx = ST_lookup($1, scope);
-          if (idx == -1) {
-            idx = ST_lookup($1, "");
-          }
-          if (idx == -1) {
-            yywarning("undeclared variable");
-          }
-          $$ = maketree(FUNCCALLEXPR);
-          addChild($$, maketreeWithVal(IDENTIFIER, idx));
-        }
+                {
+                    symEntry* entry = ST_lookup($1);
+                    if (entry == NULL) {
+                        yyerror("Undeclared function");
+                    } else if (entry->symbol_type != FUNCTION) {
+                        yyerror("Called identifier is not a function");
+                    } else if (entry->size != 0) {
+                        // Check for functions that expect parameters but got none
+                        yyerror("Number of arguments does not match function definition");
+                    }
+                    
+                    $$ = maketree(FUNCCALLEXPR);
+                    if (entry != NULL) {
+                      $$->type = entry->data_type;
+                    }
+                    addChild($$, maketreeWithVal(IDENTIFIER, 0));
+                }
                 ;
 
 argList         : expression 
-                { $$ = maketree(ARGLIST); addChild($$, $1); }
+                { 
+                    $$ = maketree(ARGLIST); 
+                    addChild($$, $1); 
+                    argCount = 1; // Start the count
+                }
                 | argList COMMA expression 
-                { $$ = maketree(ARGLIST); addChild($$, $1); addChild($$, $3); }
+                { 
+                    $$ = maketree(ARGLIST); 
+                    addChild($$, $1); 
+                    addChild($$, $3); 
+                    argCount++; // Increment for each additional argument
+                }
                 ;
 
 %%

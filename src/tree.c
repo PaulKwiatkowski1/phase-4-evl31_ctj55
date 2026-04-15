@@ -1,5 +1,5 @@
-#include<tree.h>
-#include<strtab.h>
+#include "tree.h"
+#include "strtab.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -29,7 +29,7 @@ tree *maketree(int kind) {
   newNode->val = 0;
     newNode->strval = NULL;
   newNode->parent = NULL;
-
+    newNode->type = VOID_TYPE;
   for(int i = 0; i < MAXCHILDREN; i++) {
       newNode->children[i] = NULL;
   }
@@ -39,12 +39,14 @@ tree *maketree(int kind) {
 tree *maketreeWithVal(int kind, int val) {
   tree *newNode = maketree(kind);
   newNode->val = val;
+  newNode->type = VOID_TYPE;
   return newNode;
 }
 
 tree *maketreeWithStrVal(int kind, char *strval) {
     tree *newNode = maketree(kind);
     newNode->strval = strdup(strval);
+    newNode->type = VOID_TYPE;
     return newNode;
 }
 
