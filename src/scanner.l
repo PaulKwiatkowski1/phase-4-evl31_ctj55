@@ -72,7 +72,6 @@ illidentifier   [0-9]+[a-zA-Z][a-zA-Z0-9]*
     yycol = scancol;
     for (i = 0; i < yyleng; i++) {
         if (yytext[i] == '\n') {
-            yylineno++;
             scancol = 1;
         }
     }
@@ -87,7 +86,6 @@ void updateCol(){
     scancol += yyleng;
 }
 void countLines(){
-    yylineno++;
     scancol = 1;
     yycol = 1;
 }

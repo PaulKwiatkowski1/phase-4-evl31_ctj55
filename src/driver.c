@@ -44,8 +44,10 @@ int main(int argc, char *argv[]) {
 
     if (!yyparse()){
         printf("Compilation finished.\n\n");
-        if(p_ast)
+        if (p_ast) {
+            ast = minimizeAst(ast);
             printAst(ast, 1);
+        }
         if(p_symtab)
             print_sym_tab();
     }

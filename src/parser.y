@@ -17,6 +17,138 @@ typedef struct treenode tree;
 extern tree *ast;
 
 char* scope = "";
+
+static int get_actual_symbol_type(tree *node) {
+    if (node == NULL) {
+        return SCALAR;
+    }
+
+    if (node->nodeKind == VAR) {
+        return node->val;
+    }
+
+    if (node->nodeKind == EXPRESSION || node->nodeKind == ADDEXPR || node->nodeKind == TERM || node->nodeKind == FACTOR) {
+        for (int i = 0; i < node->numChildren; i++) {
+            return get_actual_symbol_type(node->children[i]);
+        }
+    }
+
+    return SCALAR;
+}
+
+static int get_actual_data_type(tree *node) {
+    if (node == NULL) {
+        return VOID_TYPE;
+    }
+
+    if (node->nodeKind == VAR || node->nodeKind == FUNCCALLEXPR || node->nodeKind == INTEGER || node->nodeKind == CHAR || node->nodeKind == STRING) {
+        return node->type;
+    }
+
+    if (node->nodeKind == EXPRESSION || node->nodeKind == ADDEXPR || node->nodeKind == TERM || node->nodeKind == FACTOR || node->nodeKind == ARGLIST) {
+        for (int i = 0; i < node->numChildren; i++) {
+            int child_type = get_actual_data_type(node->children[i]);
+            if (node->children[i] != NULL && (node->children[i]->nodeKind == VAR || node->children[i]->nodeKind == FUNCCALLEXPR || node->children[i]->nodeKind == INTEGER || node->children[i]->nodeKind == CHAR || node->children[i]->nodeKind == STRING)) {
+                return child_type;
+            }
+            if (child_type != VOID_TYPE) {
+                return child_type;
+            }
+        }
+    }
+
+    return node->type;
+}
+
+static int validate_call_args(tree *args, param **expected_param) {
+    if (args == NULL || expected_param == NULL || *expected_param == NULL) {
+        return 1;
+    }
+
+    if (args->nodeKind != ARGLIST) {
+        return 1;
+    }
+
+    if (args->numChildren == 1) {
+        tree *actual = args->children[0];
+        int matches = actual != NULL
+            && get_actual_data_type(actual) == (*expected_param)->data_type
+            && get_actual_symbol_type(actual) == (*expected_param)->symbol_type;
+        *expected_param = (*expected_param)->next;
+        return matches;
+    }
+
+    if (args->numChildren == 2) {
+        if (!validate_call_args(args->children[0], expected_param)) {
+            return 0;
+        }
+
+        tree *actual = args->children[1];
+        int matches = actual != NULL
+            && get_actual_data_type(actual) == (*expected_param)->data_type
+            && get_actual_symbol_type(actual) == (*expected_param)->symbol_type;
+        *expected_param = (*expected_param)->next;
+        return matches;
+    }
+
+    return 0;
+}
+
+static int eval_constant_int(tree *node, int *value) {
+    if (node == NULL || value == NULL) {
+        return 0;
+    }
+
+    if (node->nodeKind == INTEGER) {
+        *value = node->val;
+        return 1;
+    }
+
+    if (node->numChildren == 1) {
+        return eval_constant_int(node->children[0], value);
+    }
+
+    if (node->numChildren == 3 && node->children[1] != NULL) {
+        int left_value = 0;
+        int right_value = 0;
+
+        if (!eval_constant_int(node->children[0], &left_value) || !eval_constant_int(node->children[2], &right_value)) {
+            return 0;
+        }
+
+        switch (node->children[1]->nodeKind) {
+            case ADDOP:
+                if (node->children[1]->val == ADD) {
+                    *value = left_value + right_value;
+                } else if (node->children[1]->val == SUB) {
+                    *value = left_value - right_value;
+                } else {
+                    return 0;
+                }
+                return 1;
+            case MULOP:
+                if (node->children[1]->val == MUL) {
+                    *value = left_value * right_value;
+                } else if (node->children[1]->val == DIV) {
+                    if (right_value == 0) {
+                        return 0;
+                    }
+                    *value = left_value / right_value;
+                } else {
+                    return 0;
+                }
+                return 1;
+            case EXPRESSION:
+            case ADDEXPR:
+            case TERM:
+                return eval_constant_int(node->children[0], value);
+            default:
+                return 0;
+        }
+    }
+
+    return 0;
+}
 %}
 
 %union
@@ -210,7 +342,7 @@ assignStmt      : var OPER_ASGN expression SEMICLN
                     addChild($$, $1); 
                     addChild($$, $3); 
 
-                    if ($1->type != $3->type) {
+                    if (get_actual_data_type($1) != get_actual_data_type($3)) {
                         yyerror("Type mismatch in assignment");
                     }
                 }
@@ -241,8 +373,11 @@ var             : ID
                 { 
                     $$ = maketree(VAR); 
                     symEntry* entry = ST_lookup($1);
-                    if (entry != NULL) {
+                    if (entry == NULL) {
+                        yyerror("Undeclared variable");
+                    } else {
                         $$->type = entry->data_type;
+                        $$->val = entry->symbol_type;
                     }
                     addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
                 }
@@ -250,12 +385,22 @@ var             : ID
                 { 
                     $$ = maketree(VAR); 
                     symEntry* entry = ST_lookup($1);
-                    if (entry != NULL) {
+                    if (entry == NULL) {
+                        yyerror("Undeclared variable");
+                    } else if (entry->symbol_type != ARRAY) {
+                        yyerror("Non-array identifier used as an array.");
+                    } else {
                         $$->type = entry->data_type;
+                        $$->val = SCALAR;
                     }
                     
-                    if ($3->type != INT_TYPE) {
-                        yyerror("Array index must be an integer");
+                    if (get_actual_data_type($3) != INT_TYPE) {
+                        yyerror("Array indexed using non-integer expression.");
+                    } else {
+                        int index_value = 0;
+                        if (entry != NULL && entry->symbol_type == ARRAY && eval_constant_int($3, &index_value) && index_value >= entry->size) {
+                            yyerror("Statically sized array indexed with constant, out-of-bounds expression.");
+                        }
                     }
                     
                     addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
@@ -337,6 +482,11 @@ funCallExpr     : ID LPAREN argList RPAREN
                     } else if (entry->size != argCount) {
                         // THIS IS THE NEW CHECK
                         yyerror("Number of arguments does not match function definition");
+                    } else {
+                        param *expected_params = entry->params;
+                        if (!validate_call_args($3, &expected_params)) {
+                        yyerror("Argument type mismatch in function call.");
+                        }
                     }
                     
                     $$ = maketree(FUNCCALLEXPR);

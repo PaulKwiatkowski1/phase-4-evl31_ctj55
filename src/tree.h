@@ -56,5 +56,8 @@ void addChild(struct treenode *parent, struct treenode *child);
   */
 void printAst(struct treenode *root, int nestLevel);
 
+/* collapses pass-through wrapper nodes that only have a single child. */
+struct treenode *minimizeAst(struct treenode *root);
+
 
 #endif

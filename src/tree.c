@@ -22,6 +22,24 @@ typedef struct treenode tree;
 tree *ast;
 extern struct strEntry strTable[MAXIDS];
 
+static int is_passthrough_node(int nodeKind) {
+    switch (nodeKind) {
+        case DECLLIST:
+        case DECL:
+        case LOCALDECLLIST:
+        case STATEMENTLIST:
+        case STATEMENT:
+        case EXPRESSION:
+        case ADDEXPR:
+        case TERM:
+        case FACTOR:
+        case ARGLIST:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 tree *maketree(int kind) {
   tree *newNode = (tree *)malloc(sizeof(tree));
   newNode->nodeKind = kind;
@@ -61,6 +79,30 @@ void addChild(tree *parent, tree *child) {
       printf("Error: Max children exceeded for node kind %d\n", parent->nodeKind);
   }
 }
+
+tree *minimizeAst(tree *root) {
+    if (root == NULL) {
+        return NULL;
+    }
+
+    for (int i = 0; i < root->numChildren; i++) {
+        root->children[i] = minimizeAst(root->children[i]);
+        if (root->children[i] != NULL) {
+            root->children[i]->parent = root;
+        }
+    }
+
+    if (is_passthrough_node(root->nodeKind) && root->numChildren == 1) {
+        tree *child = root->children[0];
+        if (child != NULL) {
+            child->parent = root->parent;
+        }
+        return child;
+    }
+
+    return root;
+}
+
 void printAst(tree *root, int nestLevel) {
     if (!root) return;
 

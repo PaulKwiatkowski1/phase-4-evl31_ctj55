@@ -8,7 +8,7 @@ YFLAGS=-v -d -b obj/y
 GRAMMAR=parser.y
 
 obj/mcc: obj/lex.yy.o obj/y.tab.o obj/tree.o obj/driver.o obj/strtab.o | obj
-	$(CC) $(CFLAGS) -o $@ $^ -ll
+	$(CC) $(CFLAGS) -o $@ $^
 
 obj/y.tab.o: obj/y.tab.c | obj
 	$(CC) $(CFLAGS) -c $< -o $@

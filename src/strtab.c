@@ -13,6 +13,38 @@ char *dataTypeStr[] = {"int", "char", "void", "string"};
 char *symbolTypeStr[] = {"scalar", "array", "function"};
 symEntry* strTable[MAXIDS];
 
+unsigned long get_hash(char* scope, char* id);
+
+static const char *normalize_scope(const char *scope) {
+    if (scope == NULL || strcmp(scope, "global") == 0) {
+        return "";
+    }
+
+    return scope;
+}
+
+static symEntry* lookup_in_scope(table_node *node, char *id) {
+    if (node == NULL || id == NULL) {
+        return NULL;
+    }
+
+    unsigned long index = get_hash(node->scope_name, id);
+    unsigned long start_index = index;
+
+    while (node->strTable[index] != NULL) {
+        if (strcmp(node->strTable[index]->id, id) == 0) {
+            return node->strTable[index];
+        }
+
+        index = (index + 1) % MAXIDS;
+        if (index == start_index) {
+            break;
+        }
+    }
+
+    return NULL;
+}
+
 unsigned long djb2(unsigned char *str) {
     unsigned long hash = 5381;
     int c;
@@ -24,8 +56,10 @@ unsigned long djb2(unsigned char *str) {
 
 unsigned long get_hash(char* scope, char* id) {
     char key[512] = ""; 
-    if (scope != NULL) {
-        strcat(key, scope);
+    const char *normalized_scope = normalize_scope(scope);
+
+    if (normalized_scope != NULL) {
+        strcat(key, normalized_scope);
     }
     strcat(key, id);
     return djb2((unsigned char*)key) % MAXIDS;
@@ -34,7 +68,8 @@ unsigned long get_hash(char* scope, char* id) {
 int ST_insert(char* id, int data_type, int symbol_type, char* scope) {
     if (current_scope == NULL) return 0; 
 
-    unsigned long index = get_hash(scope, id);
+    const char *normalized_scope = normalize_scope(scope);
+    unsigned long index = get_hash((char *)normalized_scope, id);
     unsigned long start_index = index;
     
     while (current_scope->strTable[index] != NULL) {
@@ -49,7 +84,7 @@ int ST_insert(char* id, int data_type, int symbol_type, char* scope) {
     
     symEntry* new_entry = (symEntry*)malloc(sizeof(symEntry));
     new_entry->id = strdup(id);
-    new_entry->scope = strdup(scope ? scope : "");
+    new_entry->scope = strdup(normalized_scope);
     new_entry->data_type = data_type;
     new_entry->symbol_type = symbol_type;
     new_entry->size = 0;
@@ -63,15 +98,9 @@ symEntry* ST_lookup(char* id) {
     table_node* node = current_scope;
     
     while (node != NULL) {
-        unsigned long index = get_hash(node->scope_name, id); 
-        unsigned long start_index = index;
-        
-        while (node->strTable[index] != NULL) {
-            if (strcmp(node->strTable[index]->id, id) == 0) {
-                return node->strTable[index];
-            }
-            index = (index + 1) % MAXIDS;
-            if (index == start_index) break;
+        symEntry *found = lookup_in_scope(node, id);
+        if (found != NULL) {
+            return found;
         }
         
         node = node->parent;
@@ -97,7 +126,7 @@ void add_param(int data_type, int symbol_type) {
 
 void new_scope(char* scope_name) {
     table_node* new_node = (table_node*)malloc(sizeof(table_node));
-    new_node->scope_name = strdup(scope_name ? scope_name : "");
+    new_node->scope_name = strdup(normalize_scope(scope_name));
     new_node->numChildren = 0;
     new_node->parent = current_scope;
     new_node->first_child = NULL;
@@ -131,8 +160,7 @@ void up_scope() {
 }
 
 void connect_params(char* id, int num_params) {
-    // Look up the function we just declared
-    symEntry* func_entry = ST_lookup(id);
+    symEntry* func_entry = lookup_in_scope(current_scope != NULL ? current_scope->parent : NULL, id);
     
     if (func_entry != NULL && func_entry->symbol_type == FUNCTION) {
         func_entry->params = working_list_head;
