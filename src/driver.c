@@ -3,6 +3,7 @@
 #include<string.h>
 #include<tree.h>
 #include<strtab.h>
+#include "codegen.h"
 
 extern FILE* yyin;
 
@@ -50,6 +51,9 @@ int main(int argc, char *argv[]) {
         }
         if(p_symtab)
             print_sym_tab();
+    }
+    if (!p_ast && !p_symtab) {
+    generate_code(ast);
     }
     return 0;
 }

@@ -378,8 +378,9 @@ var             : ID
                     } else {
                         $$->type = entry->data_type;
                         $$->val = entry->symbol_type;
+                        $$->offset = entry->offset;
                     }
-                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
+                    addChild($$, maketreeWithStrVal(IDENTIFIER, $1)); 
                 }
                 | ID LSQ_BRKT addExpr RSQ_BRKT 
                 { 
@@ -392,6 +393,7 @@ var             : ID
                     } else {
                         $$->type = entry->data_type;
                         $$->val = SCALAR;
+                        $$->offset = entry->offset;
                     }
                     
                     if (get_actual_data_type($3) != INT_TYPE) {
@@ -403,7 +405,7 @@ var             : ID
                         }
                     }
                     
-                    addChild($$, maketreeWithVal(IDENTIFIER, 0)); 
+                    addChild($$, maketreeWithStrVal(IDENTIFIER, $1)); 
                     addChild($$, $3); 
                 }
                 ;

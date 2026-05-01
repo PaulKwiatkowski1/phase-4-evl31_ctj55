@@ -17,8 +17,9 @@ typedef struct strEntry{
     char* scope;
     int   data_type;
     int   symbol_type;
-    int   size; //Num elements if array, num params if function
-    param*  params;
+    int   size; 
+    param* params;
+    int   offset;
 } symEntry;
 
 /* You should use a linear linklist to keep track of all parameters passed to a function. The working_list_head should point to the beginning of the linklist and working_list_end should point to the end. Whenever a parameter is passed to a function, that node should also be added in this list. */

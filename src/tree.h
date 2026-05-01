@@ -23,6 +23,7 @@ struct treenode {
       int val;
       char *strval;
       int type;
+      int offset; // Added to track $sp memory offset
       struct treenode *parent;
       struct treenode *children[MAXCHILDREN];
 };

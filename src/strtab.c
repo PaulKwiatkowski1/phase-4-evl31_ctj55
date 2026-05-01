@@ -3,6 +3,7 @@
 #include <string.h>
 #include "strtab.h"
 
+int current_sp_offset = 0;
 param *working_list_head = NULL;
 param *working_list_end = NULL;
 table_node* current_scope = NULL;
@@ -89,7 +90,8 @@ int ST_insert(char* id, int data_type, int symbol_type, char* scope) {
     new_entry->symbol_type = symbol_type;
     new_entry->size = 0;
     new_entry->params = NULL;
-    
+    new_entry->offset = current_sp_offset;
+    current_sp_offset += 4;
     current_scope->strTable[index] = new_entry;
     return 1;
 }
@@ -125,6 +127,7 @@ void add_param(int data_type, int symbol_type) {
 }
 
 void new_scope(char* scope_name) {
+    current_sp_offset = 0;
     table_node* new_node = (table_node*)malloc(sizeof(table_node));
     new_node->scope_name = strdup(normalize_scope(scope_name));
     new_node->numChildren = 0;
