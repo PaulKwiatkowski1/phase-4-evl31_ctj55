@@ -1,0 +1,9 @@
+Names: Ace Brown and Paul Kwiatkowski
+ctj55 and evl31
+CS4318
+
+Paul Kwiatkowski implemented MIPS code generation for relational operators, conditional and iterative statemenets, expression evaluation, and label generation system. 
+
+Ace Brown enhanced the parser and the scanner to tackle type inference for expressions and codegen validations
+
+No extra compilation instructions needed.

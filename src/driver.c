@@ -11,12 +11,14 @@ void printhelp(){
     printf("Usage: mcc [--ast] [--sym] [-h|--help] FILE\n");
     printf("\t--ast:\t\tPrint a textual representation of the constructed abstract syntax tree.\n");
     printf("\t--sym:\t\tPrint a textual representation of the constructed symbol table.\n");
+    printf("\t--codegen:\tEmit generated MIPS code.\n");
     printf("\t-h,--help:\tPrint this help information and exit.\n\n");
 }
 
 int main(int argc, char *argv[]) {
     int p_ast = 0;
     int p_symtab = 0;
+    int p_codegen = 0;
 
     // Skip first arg (program name), then check all but last for options.
     for(int i=1; i < argc - 1; i++){
@@ -29,6 +31,9 @@ int main(int argc, char *argv[]) {
         }
         else if(strcmp(argv[i],"--sym")==0){
             p_symtab = 1;
+        }
+        else if(strcmp(argv[i],"--codegen")==0){
+            p_codegen = 1;
         }
         else{
             printhelp();
@@ -52,7 +57,7 @@ int main(int argc, char *argv[]) {
         if(p_symtab)
             print_sym_tab();
     }
-    if (!p_ast && !p_symtab) {
+    if (p_codegen) {
     generate_code(ast);
     }
     return 0;

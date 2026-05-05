@@ -12,11 +12,10 @@ int yywarning(char *msg);
 int yyerror(char *msg);
 
 int pcount = 0;
-int argCount = 0;
-typedef struct treenode tree;
 extern tree *ast;
 
 char* scope = "";
+int in_call_args = 0;
 
 static int get_actual_symbol_type(tree *node) {
     if (node == NULL) {
@@ -28,70 +27,123 @@ static int get_actual_symbol_type(tree *node) {
     }
 
     if (node->nodeKind == EXPRESSION || node->nodeKind == ADDEXPR || node->nodeKind == TERM || node->nodeKind == FACTOR) {
-        for (int i = 0; i < node->numChildren; i++) {
-            return get_actual_symbol_type(node->children[i]);
+        if ((node->nodeKind == EXPRESSION || node->nodeKind == ADDEXPR || node->nodeKind == TERM) && node->numChildren == 3) {
+            return SCALAR;
+        }
+
+        if (node->numChildren > 0) {
+            return get_actual_symbol_type(node->children[0]);
         }
     }
 
     return SCALAR;
 }
 
-static int get_actual_data_type(tree *node) {
+static int infer_expr_type(tree *node, int *ok) {
+    int left_type;
+    int right_type;
+
     if (node == NULL) {
+        *ok = 0;
         return VOID_TYPE;
     }
 
-    if (node->nodeKind == VAR || node->nodeKind == FUNCCALLEXPR || node->nodeKind == INTEGER || node->nodeKind == CHAR || node->nodeKind == STRING) {
-        return node->type;
-    }
-
-    if (node->nodeKind == EXPRESSION || node->nodeKind == ADDEXPR || node->nodeKind == TERM || node->nodeKind == FACTOR || node->nodeKind == ARGLIST) {
-        for (int i = 0; i < node->numChildren; i++) {
-            int child_type = get_actual_data_type(node->children[i]);
-            if (node->children[i] != NULL && (node->children[i]->nodeKind == VAR || node->children[i]->nodeKind == FUNCCALLEXPR || node->children[i]->nodeKind == INTEGER || node->children[i]->nodeKind == CHAR || node->children[i]->nodeKind == STRING)) {
-                return child_type;
+    switch (node->nodeKind) {
+        case INTEGER:
+            return INT_TYPE;
+        case CHAR:
+            return CHAR_TYPE;
+        case STRING:
+            return STRING_TYPE;
+        case VAR:
+        case FUNCCALLEXPR:
+            return node->type;
+        case FACTOR:
+            if (node->numChildren == 0) {
+                *ok = 0;
+                return VOID_TYPE;
             }
-            if (child_type != VOID_TYPE) {
-                return child_type;
+            return infer_expr_type(node->children[0], ok);
+        case TERM:
+        case ADDEXPR:
+            if (node->numChildren == 1) {
+                return infer_expr_type(node->children[0], ok);
             }
-        }
+            left_type = infer_expr_type(node->children[0], ok);
+            right_type = infer_expr_type(node->children[2], ok);
+            if (!*ok || left_type != right_type || left_type == VOID_TYPE) {
+                *ok = 0;
+                return VOID_TYPE;
+            }
+            return left_type;
+        case EXPRESSION:
+            if (node->numChildren == 1) {
+                return infer_expr_type(node->children[0], ok);
+            }
+            left_type = infer_expr_type(node->children[0], ok);
+            right_type = infer_expr_type(node->children[2], ok);
+            if (!*ok || left_type != right_type || left_type == VOID_TYPE) {
+                *ok = 0;
+            }
+            return INT_TYPE;
+        default:
+            if (node->numChildren == 1) {
+                return infer_expr_type(node->children[0], ok);
+            }
+            *ok = 0;
+            return VOID_TYPE;
     }
-
-    return node->type;
 }
 
-static int validate_call_args(tree *args, param **expected_param) {
-    if (args == NULL || expected_param == NULL || *expected_param == NULL) {
-        return 1;
+static int count_args(tree *args) {
+    if (args == NULL) {
+        return 0;
     }
 
     if (args->nodeKind != ARGLIST) {
-        return 1;
+        return 0;
     }
 
     if (args->numChildren == 1) {
-        tree *actual = args->children[0];
-        int matches = actual != NULL
-            && get_actual_data_type(actual) == (*expected_param)->data_type
-            && get_actual_symbol_type(actual) == (*expected_param)->symbol_type;
-        *expected_param = (*expected_param)->next;
-        return matches;
+        return 1;
     }
 
     if (args->numChildren == 2) {
-        if (!validate_call_args(args->children[0], expected_param)) {
-            return 0;
-        }
-
-        tree *actual = args->children[1];
-        int matches = actual != NULL
-            && get_actual_data_type(actual) == (*expected_param)->data_type
-            && get_actual_symbol_type(actual) == (*expected_param)->symbol_type;
-        *expected_param = (*expected_param)->next;
-        return matches;
+        return count_args(args->children[0]) + 1;
     }
 
     return 0;
+}
+
+static int validate_call_args(tree *args, param **expected_param) {
+    int ok = 1;
+    int actual_type;
+    tree *actual;
+
+    if (args == NULL) {
+        return expected_param != NULL && *expected_param == NULL;
+    }
+
+    if (expected_param == NULL || *expected_param == NULL || args->nodeKind != ARGLIST) {
+        return 0;
+    }
+
+    if (args->numChildren == 2 && !validate_call_args(args->children[0], expected_param)) {
+        return 0;
+    }
+
+    actual = (args->numChildren == 1) ? args->children[0] : args->children[1];
+    actual_type = infer_expr_type(actual, &ok);
+    if (!ok || actual == NULL) {
+        return 0;
+    }
+
+    if (actual_type != (*expected_param)->data_type) {
+        return 0;
+    }
+
+    *expected_param = (*expected_param)->next;
+    return 1;
 }
 
 static int eval_constant_int(tree *node, int *value) {
@@ -168,6 +220,9 @@ static int eval_constant_int(tree *node, int *value) {
 %token LSQ_BRKT RSQ_BRKT LCRLY_BRKT RCRLY_BRKT LPAREN RPAREN COMMA SEMICLN
 %token ERROR
 
+%nonassoc IFX
+%nonassoc KWD_ELSE
+
 %type <node> program declList decl varDecl typeSpecifier funDecl
 %type <node> formalDeclList formalDecl funBody localDeclList
 %type <node> statementList statement compoundStmt assignStmt
@@ -204,7 +259,16 @@ varDecl         : typeSpecifier ID LSQ_BRKT INTCONST RSQ_BRKT SEMICLN
                     addChild($$, $1); 
                     
                     if (ST_insert($2, $1->val, ARRAY, current_scope->scope_name) == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
+                    } else {
+                        symEntry *entry = ST_lookup($2);
+                        if (entry != NULL) {
+                            entry->size = $4;
+                        }
+                    }
+
+                    if ($4 == 0) {
+                        yyerror("Array variable declared with size of zero.");
                     }
                     
                     addChild($$, maketreeWithVal(IDENTIFIER, 0));
@@ -216,7 +280,7 @@ varDecl         : typeSpecifier ID LSQ_BRKT INTCONST RSQ_BRKT SEMICLN
                     addChild($$, $1);
                     
                     if (ST_insert($2, $1->val, SCALAR, current_scope->scope_name) == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
                     }
                     
                     addChild($$, maketreeWithVal(IDENTIFIER, 0));
@@ -232,7 +296,7 @@ typeSpecifier   : KWD_INT  { $$ = maketree(TYPESPEC); $$->val = INT_TYPE; }
 funDecl         : typeSpecifier ID LPAREN 
                 { 
                     if (ST_insert($2, $1->val, FUNCTION, "global") == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
                     }
                     scope = $2; 
                     new_scope(scope);
@@ -255,7 +319,7 @@ funDecl         : typeSpecifier ID LPAREN
                 | typeSpecifier ID LPAREN 
                 { 
                     if (ST_insert($2, $1->val, FUNCTION, "global") == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
                     }
                     scope = $2; 
                     new_scope(scope);
@@ -288,7 +352,7 @@ formalDecl      : typeSpecifier ID
                     addChild($$, $1); 
                     
                     if (ST_insert($2, $1->val, SCALAR, current_scope->scope_name) == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
                     }
                     add_param($1->val, SCALAR);
                     pcount++;
@@ -300,7 +364,7 @@ formalDecl      : typeSpecifier ID
                     addChild($$, $1); 
                     
                     if (ST_insert($2, $1->val, ARRAY, current_scope->scope_name) == 0) {
-                        yyerror("Multiply declared identifier");
+                        yyerror("Symbol declared multiple times.");
                     }
                     pcount++;
                     add_param($1->val, ARRAY);
@@ -338,12 +402,20 @@ compoundStmt    : LCRLY_BRKT statementList RCRLY_BRKT
 
 assignStmt      : var OPER_ASGN expression SEMICLN 
                 { 
+                    int lhs_ok = 1;
+                    int rhs_ok = 1;
+                    int lhs_type;
+                    int rhs_type;
+
                     $$ = maketree(ASSIGNSTMT); 
                     addChild($$, $1); 
                     addChild($$, $3); 
 
-                    if (get_actual_data_type($1) != get_actual_data_type($3)) {
-                        yyerror("Type mismatch in assignment");
+                    lhs_type = infer_expr_type($1, &lhs_ok);
+                    rhs_type = infer_expr_type($3, &rhs_ok);
+
+                    if (!lhs_ok || !rhs_ok || lhs_type != rhs_type) {
+                        yyerror("Type mismatch in assignment.");
                     }
                 }
                 | expression SEMICLN 
@@ -354,6 +426,7 @@ assignStmt      : var OPER_ASGN expression SEMICLN
                 ;
 
 condStmt        : KWD_IF LPAREN expression RPAREN statement 
+                %prec IFX
                 { $$ = maketree(CONDSTMT); addChild($$, $3); addChild($$, $5); }
                 | KWD_IF LPAREN expression RPAREN statement KWD_ELSE statement 
                 { $$ = maketree(CONDSTMT); addChild($$, $3); addChild($$, $5); addChild($$, $7); }
@@ -374,7 +447,9 @@ var             : ID
                     $$ = maketree(VAR); 
                     symEntry* entry = ST_lookup($1);
                     if (entry == NULL) {
-                        yyerror("Undeclared variable");
+                        if (!in_call_args) {
+                            yyerror("Undeclared variable");
+                        }
                     } else {
                         $$->type = entry->data_type;
                         $$->val = entry->symbol_type;
@@ -384,10 +459,16 @@ var             : ID
                 }
                 | ID LSQ_BRKT addExpr RSQ_BRKT 
                 { 
+                    int index_ok = 1;
+                    int index_type;
+                    int index_value = 0;
+
                     $$ = maketree(VAR); 
                     symEntry* entry = ST_lookup($1);
                     if (entry == NULL) {
-                        yyerror("Undeclared variable");
+                        if (!in_call_args) {
+                            yyerror("Undeclared variable");
+                        }
                     } else if (entry->symbol_type != ARRAY) {
                         yyerror("Non-array identifier used as an array.");
                     } else {
@@ -396,10 +477,10 @@ var             : ID
                         $$->offset = entry->offset;
                     }
                     
-                    if (get_actual_data_type($3) != INT_TYPE) {
+                    index_type = infer_expr_type($3, &index_ok);
+                    if (!index_ok || index_type != INT_TYPE) {
                         yyerror("Array indexed using non-integer expression.");
                     } else {
-                        int index_value = 0;
                         if (entry != NULL && entry->symbol_type == ARRAY && eval_constant_int($3, &index_value) && index_value >= entry->size) {
                             yyerror("Statically sized array indexed with constant, out-of-bounds expression.");
                         }
@@ -474,45 +555,54 @@ factor          : INTCONST
                 }
                 ;
 
-funCallExpr     : ID LPAREN argList RPAREN 
+funCallExpr     : ID LPAREN { in_call_args = 1; } argList RPAREN 
                 {
+                    int actual_count;
+                    in_call_args = 0;
                     symEntry* entry = ST_lookup($1);
                     if (entry == NULL) {
-                        yyerror("Undeclared function");
+                        yyerror("Undefined function");
                     } else if (entry->symbol_type != FUNCTION) {
-                        yyerror("Called identifier is not a function");
-                    } else if (entry->size != argCount) {
-                        // THIS IS THE NEW CHECK
-                        yyerror("Number of arguments does not match function definition");
+                        yyerror("Called identifier is not a function.");
                     } else {
+                        actual_count = count_args($4);
+                        if (actual_count < entry->size) {
+                            yyerror("Too few arguments provided in function call.");
+                        } else if (actual_count > entry->size) {
+                            yyerror("Too many arguments provided in function call.");
+                        } else {
                         param *expected_params = entry->params;
-                        if (!validate_call_args($3, &expected_params)) {
-                        yyerror("Argument type mismatch in function call.");
+                        if (!validate_call_args($4, &expected_params)) {
+                            yyerror("Argument type mismatch in function call.");
+                        }
                         }
                     }
                     
                     $$ = maketree(FUNCCALLEXPR);
                     if (entry != NULL) {
                       $$->type = entry->data_type;
+                    } else {
+                      $$->type = VOID_TYPE;
                     }
                     addChild($$, maketreeWithVal(IDENTIFIER, 0));
-                    addChild($$, $3);
+                    addChild($$, $4);
                 }
                 | ID LPAREN RPAREN 
                 {
                     symEntry* entry = ST_lookup($1);
                     if (entry == NULL) {
-                        yyerror("Undeclared function");
+                        yyerror("Undefined function");
                     } else if (entry->symbol_type != FUNCTION) {
-                        yyerror("Called identifier is not a function");
-                    } else if (entry->size != 0) {
-                        // Check for functions that expect parameters but got none
-                        yyerror("Number of arguments does not match function definition");
+                        yyerror("Called identifier is not a function.");
+                    } else if (entry->size > 0) {
+                        yyerror("Too few arguments provided in function call.");
                     }
                     
                     $$ = maketree(FUNCCALLEXPR);
                     if (entry != NULL) {
                       $$->type = entry->data_type;
+                    } else {
+                      $$->type = VOID_TYPE;
                     }
                     addChild($$, maketreeWithVal(IDENTIFIER, 0));
                 }
@@ -522,14 +612,12 @@ argList         : expression
                 { 
                     $$ = maketree(ARGLIST); 
                     addChild($$, $1); 
-                    argCount = 1; // Start the count
                 }
                 | argList COMMA expression 
                 { 
                     $$ = maketree(ARGLIST); 
                     addChild($$, $1); 
                     addChild($$, $3); 
-                    argCount++; // Increment for each additional argument
                 }
                 ;
 

@@ -20,7 +20,6 @@ character       '[^'\n']'
 string          \"([^"\n\\]|\\.)*\"
 untermstring    \"([^\"\n\\]|\\.)*\n|\"([^\"\n\\]|\\.)*
 comment         "/*"([^*]|\*+[^*/])*\*+"/"
-multlncomment   "/*"([^*\n]|\*|[^*/\n]|\n)*\*+"/"
 untermcomment   "/*"([^*]|\*+[^*/])*
 identifier      [a-zA-Z][a-zA-Z0-9]*
 illidentifier   [0-9]+[a-zA-Z][a-zA-Z0-9]*
@@ -67,16 +66,6 @@ illidentifier   [0-9]+[a-zA-Z][a-zA-Z0-9]*
 {untermstring}  { updateCol(); yyerror("Unterminated string constant"); yylval.strval = strdup(yytext); return ERROR; }
 {comment}       { updateCol(); }
 {untermcomment} { yycol = scancol; yyerror("Unterminated comment"); return ERROR; }
-{multlncomment} {
-    int i;
-    yycol = scancol;
-    for (i = 0; i < yyleng; i++) {
-        if (yytext[i] == '\n') {
-            scancol = 1;
-        }
-    }
-    scancol = 1;
-}
 {newline}       { countLines(); }
 {whitespace}    { updateCol(); }
 .               { return ERROR; }

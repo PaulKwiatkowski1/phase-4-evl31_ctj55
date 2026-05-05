@@ -17,8 +17,6 @@ const char *nodeKindStr[] = {
 
 const char *opsStr[] = {"+", "-", "*", "/", "<", "<=", "==", ">=", ">", "!="};
 
-typedef struct treenode tree;
-
 tree *ast;
 extern struct strEntry strTable[MAXIDS];
 

@@ -44,4 +44,4 @@ clean:
 	@rm -f lex.yy.* *.o *~ scanner
 
 test: obj/mcc
-	@python ./test/testParser.py
+	@python3 ./test/testParser.py
